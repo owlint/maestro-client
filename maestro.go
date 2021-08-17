@@ -160,6 +160,76 @@ func (m Client) DeleteTask(taskID string) error {
 	return nil
 }
 
+func (m Client) NextInQueue(queueName string) (*Task, error) {
+	httpPayload := struct {
+		QueueName string `json:"queue"`
+	}{
+		QueueName: queueName,
+	}
+
+	bytePayload, err := json.Marshal(&httpPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/queue/next", m.endpoint), bytes.NewReader(bytePayload))
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+	}
+
+	respBody := struct {
+		Task Task
+	}{Task: Task{}}
+	err = json.NewDecoder(resp.Body).Decode(&respBody)
+	if err != nil {
+		return nil, err
+	}
+
+	return &respBody.Task, nil
+}
+
+func (m Client) CompleteTask(taskID, result string) error {
+	httpPayload := struct {
+        TaskID string `json:"task_id"`
+        Result string `json:"result"`
+	}{
+        TaskID: taskID,
+        Result: result,
+	}
+
+	bytePayload, err := json.Marshal(&httpPayload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/queue/next", m.endpoint), bytes.NewReader(bytePayload))
+	if err != nil {
+		return err
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+	}
+
+    return nil
+}
+
 type MaestroMock struct {
 	NbCreated int
 }
