@@ -212,7 +212,7 @@ func (m Client) CompleteTask(taskID, result string) error {
 		return err
 	}
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/queue/next", m.endpoint), bytes.NewReader(bytePayload))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/task/complete", m.endpoint), bytes.NewReader(bytePayload))
 	if err != nil {
 		return err
 	}
