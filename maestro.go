@@ -160,6 +160,36 @@ func (m Client) DeleteTask(taskID string) error {
 	return nil
 }
 
+func (m Client) FailTask(taskID string) error {
+	httpPayload := struct {
+		TaskID string `json:"task_id"`
+	}{
+		TaskID: taskID,
+	}
+
+	bytePayload, err := json.Marshal(&httpPayload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/task/fail", m.endpoint), bytes.NewReader(bytePayload))
+	if err != nil {
+		return err
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
 func (m Client) NextInQueue(queueName string) (*Task, error) {
 	httpPayload := struct {
 		QueueName string `json:"queue"`
