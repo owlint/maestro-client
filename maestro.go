@@ -2,6 +2,7 @@ package maestro
 
 import (
 	"bytes"
+    "time"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -32,8 +33,14 @@ func NewClient(endpoint string) *Client {
 
 type Maestro interface {
 	CreateTask(owner, queue, payload string) (string, error)
+    CreateScheduledTask(owner, queue, payload string, executesAfter time.Duration) (string, error)
+
 	TaskState(taskID string) (*Task, error)
 	DeleteTask(taskID string) error
+    FailTask(taskID string) error
+    NextInQueue(queueName string) (*Task, error)
+    CompleteTask(taskID, result string) error
+    Consume(queue string) (*Task, error)
 }
 
 type Client struct {
@@ -54,6 +61,59 @@ func (m Client) CreateTask(owner, queue, payload string) (string, error) {
 		0,
 		900,
 		payload,
+	}
+
+	bytePayload, err := json.Marshal(&httpPayload)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/task/create", m.endpoint), bytes.NewReader(bytePayload))
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+	}
+
+	respBody := struct {
+		Error  string `json:"error,omitempty"`
+		TaskID string `json:"task_id,omitempty"`
+	}{}
+	err = json.NewDecoder(resp.Body).Decode(&respBody)
+	if err != nil {
+		return "", err
+	}
+
+	if respBody.Error != "" {
+		return "", fmt.Errorf("Maestro error %s", respBody.Error)
+	}
+
+	return respBody.TaskID, nil
+}
+
+func (m Client) CreateScheduledTask(owner, queue, payload string, executesAfter time.Duration) (string, error) {
+	httpPayload := struct {
+		Owner   string `json:"owner"`
+		Queue   string `json:"queue"`
+		Retries int    `json:"retries"`
+		Timeout int    `json:"timeout"`
+		Payload string `json:"payload"`
+		NotBefore int64 `json:"not_before"`
+	}{
+		owner,
+		queue,
+		0,
+		180,
+		payload,
+        time.Now().Add(executesAfter).Unix(),
 	}
 
 	bytePayload, err := json.Marshal(&httpPayload)
@@ -260,6 +320,45 @@ func (m Client) CompleteTask(taskID, result string) error {
     return nil
 }
 
+func (m Client) Consume(queue string) (*Task, error) {
+	httpPayload := struct {
+		Queue string `json:"queue"`
+	}{
+		Queue: queue,
+	}
+
+	bytePayload, err := json.Marshal(&httpPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/queue/results/consume", m.endpoint), bytes.NewReader(bytePayload))
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+	}
+
+	respBody := struct {
+		Task Task
+	}{Task: Task{}}
+	err = json.NewDecoder(resp.Body).Decode(&respBody)
+	if err != nil {
+		return nil, err
+	}
+
+	return &respBody.Task, nil
+}
+
+
 type MaestroMock struct {
 	NbCreated int
 }
@@ -268,9 +367,25 @@ func (m *MaestroMock) CreateTask(owner, queue, payload string) (string, error) {
 	m.NbCreated += 1
 	return uuid.NewString(), nil
 }
+func (m *MaestroMock) CreateScheduledTask(owner, queue, payload string, executesAfter time.Duration) (string, error) {
+	m.NbCreated += 1
+	return uuid.NewString(), nil
+}
 func (m *MaestroMock) TaskState(taskID string) (*Task, error) {
 	return nil, nil
 }
 func (m *MaestroMock) DeleteTask(taskID string) error {
 	return nil
+}
+func (m *MaestroMock) FailTask(taskID string) error {
+	return nil
+}
+func (m *MaestroMock) NextInQueue(queueName string) (*Task, error) {
+	return nil, nil
+}
+func (m *MaestroMock) CompleteTask(taskID string, result string) error {
+	return nil
+}
+func (m *MaestroMock) Consume(queueName string) (*Task, error) {
+	return nil, nil
 }
