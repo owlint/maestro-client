@@ -41,6 +41,7 @@ type Maestro interface {
     NextInQueue(queueName string) (*Task, error)
     CompleteTask(taskID, result string) error
     Consume(queue string) (*Task, error)
+    QueueStats(queue string) (map[string][]string, error)
 }
 
 type Client struct {
@@ -358,6 +359,41 @@ func (m Client) Consume(queue string) (*Task, error) {
 	return &respBody.Task, nil
 }
 
+func (m Client) QueueStats(queue string) (map[string][]string, error) {
+	httpPayload := struct {
+		Queue string `json:"queue"`
+	}{
+		Queue: queue,
+	}
+
+	bytePayload, err := json.Marshal(&httpPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/queue/stats", m.endpoint), bytes.NewReader(bytePayload))
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+	}
+
+    respBody := make(map[string][]string)
+	err = json.NewDecoder(resp.Body).Decode(&respBody)
+	if err != nil {
+		return nil, err
+	}
+
+	return respBody, nil
+}
 
 type MaestroMock struct {
 	NbCreated int
@@ -388,4 +424,7 @@ func (m *MaestroMock) CompleteTask(taskID string, result string) error {
 }
 func (m *MaestroMock) Consume(queueName string) (*Task, error) {
 	return nil, nil
+}
+func (m *MaestroMock) QueueStats(queue string) (map[string][]string, error) {
+    return nil, nil
 }
