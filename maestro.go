@@ -2,10 +2,11 @@ package maestro
 
 import (
 	"bytes"
-    "time"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -33,15 +34,15 @@ func NewClient(endpoint string) *Client {
 
 type Maestro interface {
 	CreateTask(owner, queue, payload string) (string, error)
-    CreateScheduledTask(owner, queue, payload string, executesAfter time.Duration) (string, error)
+	CreateScheduledTask(owner, queue, payload string, executesAfter time.Duration) (string, error)
 
 	TaskState(taskID string) (*Task, error)
 	DeleteTask(taskID string) error
-    FailTask(taskID string) error
-    NextInQueue(queueName string) (*Task, error)
-    CompleteTask(taskID, result string) error
-    Consume(queue string) (*Task, error)
-    QueueStats(queue string) (map[string][]string, error)
+	FailTask(taskID string) error
+	NextInQueue(queueName string) (*Task, error)
+	CompleteTask(taskID, result string) error
+	Consume(queue string) (*Task, error)
+	QueueStats(queue string) (map[string][]string, error)
 }
 
 type Client struct {
@@ -81,7 +82,8 @@ func (m Client) CreateTask(owner, queue, payload string) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+		msg, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("Maestro responded with invalid status code %d : %s", resp.StatusCode, string(msg))
 	}
 
 	respBody := struct {
@@ -102,19 +104,19 @@ func (m Client) CreateTask(owner, queue, payload string) (string, error) {
 
 func (m Client) CreateScheduledTask(owner, queue, payload string, executesAfter time.Duration) (string, error) {
 	httpPayload := struct {
-		Owner   string `json:"owner"`
-		Queue   string `json:"queue"`
-		Retries int    `json:"retries"`
-		Timeout int    `json:"timeout"`
-		Payload string `json:"payload"`
-		NotBefore int64 `json:"not_before"`
+		Owner     string `json:"owner"`
+		Queue     string `json:"queue"`
+		Retries   int    `json:"retries"`
+		Timeout   int    `json:"timeout"`
+		Payload   string `json:"payload"`
+		NotBefore int64  `json:"not_before"`
 	}{
 		owner,
 		queue,
 		0,
 		180,
 		payload,
-        time.Now().Add(executesAfter).Unix(),
+		time.Now().Add(executesAfter).Unix(),
 	}
 
 	bytePayload, err := json.Marshal(&httpPayload)
@@ -134,7 +136,8 @@ func (m Client) CreateScheduledTask(owner, queue, payload string, executesAfter 
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+		msg, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("Maestro responded with invalid status code %d : %s", resp.StatusCode, string(msg))
 	}
 
 	respBody := struct {
@@ -177,7 +180,8 @@ func (m Client) TaskState(taskID string) (*Task, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+		msg, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Maestro responded with invalid status code %d : %s", resp.StatusCode, string(msg))
 	}
 
 	respBody := struct {
@@ -215,7 +219,8 @@ func (m Client) DeleteTask(taskID string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Maestro responded with invalid status code %d : %s", resp.StatusCode, string(msg))
 	}
 
 	return nil
@@ -245,7 +250,8 @@ func (m Client) FailTask(taskID string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Maestro responded with invalid status code %d : %s", resp.StatusCode, string(msg))
 	}
 
 	return nil
@@ -275,7 +281,8 @@ func (m Client) NextInQueue(queueName string) (*Task, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+		msg, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Maestro responded with invalid status code %d : %s", resp.StatusCode, string(msg))
 	}
 
 	respBody := struct {
@@ -291,11 +298,11 @@ func (m Client) NextInQueue(queueName string) (*Task, error) {
 
 func (m Client) CompleteTask(taskID, result string) error {
 	httpPayload := struct {
-        TaskID string `json:"task_id"`
-        Result string `json:"result"`
+		TaskID string `json:"task_id"`
+		Result string `json:"result"`
 	}{
-        TaskID: taskID,
-        Result: result,
+		TaskID: taskID,
+		Result: result,
 	}
 
 	bytePayload, err := json.Marshal(&httpPayload)
@@ -315,10 +322,11 @@ func (m Client) CompleteTask(taskID, result string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Maestro responded with invalid status code %d : %s", resp.StatusCode, string(msg))
 	}
 
-    return nil
+	return nil
 }
 
 func (m Client) Consume(queue string) (*Task, error) {
@@ -345,7 +353,8 @@ func (m Client) Consume(queue string) (*Task, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+		msg, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Maestro responded with invalid status code %d : %s", resp.StatusCode, string(msg))
 	}
 
 	respBody := struct {
@@ -383,10 +392,11 @@ func (m Client) QueueStats(queue string) (map[string][]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("Maestro responded with invalid status code %d", resp.StatusCode)
+		msg, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Maestro responded with invalid status code %d : %s", resp.StatusCode, string(msg))
 	}
 
-    respBody := make(map[string][]string)
+	respBody := make(map[string][]string)
 	err = json.NewDecoder(resp.Body).Decode(&respBody)
 	if err != nil {
 		return nil, err
@@ -426,5 +436,5 @@ func (m *MaestroMock) Consume(queueName string) (*Task, error) {
 	return nil, nil
 }
 func (m *MaestroMock) QueueStats(queue string) (map[string][]string, error) {
-    return nil, nil
+	return nil, nil
 }
