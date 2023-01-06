@@ -1,6 +1,6 @@
-PROJECT_NAME := $(if $(PROJECT_NAME),$(PROJECT_NAME),maestro-go-client)
+PROJECT_NAME := $(if $(PROJECT_NAME),$(PROJECT_NAME),maestro-client)
 
-.PHONY: all up bare_test down test run
+.PHONY: all up bare_test down test generate
 
 up:
 	docker-compose -p ${PROJECT_NAME} up -d
@@ -13,4 +13,7 @@ down:
 
 test: down up bare_test down
 
-all: test run
+generate:
+	go generate ./...
+
+all: generate test run
