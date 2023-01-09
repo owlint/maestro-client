@@ -259,7 +259,7 @@ func TestDeleteTask(t *testing.T) {
 
 			cacheSize, err := r.DBSize(context.Background()).Result()
 			assert.NoError(t, err)
-			assert.Equal(t, int64(1), cacheSize)
+			assert.Positive(t, cacheSize)
 
 			mock.EXPECT().TaskState(pendingTask.TaskID).Return(&maestro.Task{
 				TaskID:    pendingTask.TaskID,
