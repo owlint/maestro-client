@@ -11,34 +11,35 @@ import (
 
 type CachedClient struct {
 	maestro          Maestro
-	cachedQueues     map[string]struct{}
+	store            payloadStore
 	completedTaskTTL time.Duration
-	cache            cache.Cache
 }
 
 func NewCachedClient(maestro Maestro, cache cache.Cache, cachedQueues []string, completedTaskTTL time.Duration) *CachedClient {
-	queuesMap := map[string]struct{}{}
+	queueNameSet := map[string]struct{}{}
 	for _, queue := range cachedQueues {
-		queuesMap[queue] = struct{}{}
+		queueNameSet[queue] = struct{}{}
 	}
 
 	return &CachedClient{
-		maestro:          maestro,
-		cache:            cache,
-		cachedQueues:     queuesMap,
+		maestro: maestro,
+		store: payloadStore{
+			cache:        cache,
+			cachedQueues: queueNameSet,
+		},
 		completedTaskTTL: completedTaskTTL,
 	}
 }
 
-func (m *CachedClient) CreateTask(owner, queue, payload string, options ...createTaskOptions) (string, error) {
+func (m *CachedClient) CreateTask(owner, queue, payload string, options ...CreateTaskOptions) (string, error) {
 	opt := MergeCreateTaskOptions(options...)
-	if _, exists := m.cachedQueues[queue]; exists && opt.StartTimeout() <= 0 {
+	if m.store.IsCached(queue) && opt.StartTimeout() <= 0 {
 		return "", errors.New("start timeout must be > 0 for cached task")
 	}
 
 	ttl := opt.ExecutesIn() + m.completedTaskTTL + (opt.StartTimeout()+opt.Timeout())*time.Duration(opt.Retries()+1)
 
-	payload, err := m.cachePayload(context.TODO(), queue, payload, ttl)
+	payload, err := m.store.Persist(context.TODO(), queue, payload, ttl)
 	if err != nil {
 		return "", err
 	}
@@ -52,7 +53,7 @@ func (m *CachedClient) TaskState(taskID string) (*Task, error) {
 		return task, err
 	}
 
-	return m.taskFromCache(context.TODO(), task)
+	return m.store.Reload(context.TODO(), task)
 }
 
 func (m *CachedClient) DeleteTask(taskID string) error {
@@ -63,16 +64,9 @@ func (m *CachedClient) DeleteTask(taskID string) error {
 		return err
 	}
 
-	err = m.delete(ctx, task.TaskQueue, task.Payload)
+	err = m.store.Delete(ctx, task)
 	if err != nil {
 		return err
-	}
-
-	if task.Result != "" {
-		err = m.delete(ctx, task.TaskQueue, task.Result)
-		if err != nil {
-			return err
-		}
 	}
 
 	return m.maestro.DeleteTask(taskID)
@@ -84,7 +78,7 @@ func (m *CachedClient) FailTask(taskID string) error {
 		return err
 	}
 
-	err = m.setTTL(context.TODO(), task.TaskQueue, task.Payload, m.completedTaskTTL)
+	err = m.store.SetTTL(context.TODO(), task.TaskQueue, task.Payload, m.completedTaskTTL)
 	if err != nil {
 		return err
 	}
@@ -98,7 +92,7 @@ func (m *CachedClient) NextInQueue(queueName string) (*Task, error) {
 		return task, err
 	}
 
-	return m.taskFromCache(context.TODO(), task)
+	return m.store.Reload(context.TODO(), task)
 }
 
 func (m *CachedClient) CompleteTask(taskID, result string) error {
@@ -109,12 +103,12 @@ func (m *CachedClient) CompleteTask(taskID, result string) error {
 
 	ctx := context.TODO()
 
-	err = m.setTTL(ctx, task.TaskQueue, task.Payload, m.completedTaskTTL)
+	err = m.store.SetTTL(ctx, task.TaskQueue, task.Payload, m.completedTaskTTL)
 	if err != nil {
 		return err
 	}
 
-	result, err = m.cachePayload(ctx, task.TaskQueue, result, m.completedTaskTTL)
+	result, err = m.store.Persist(ctx, task.TaskQueue, result, m.completedTaskTTL)
 	if err != nil {
 		return err
 	}
@@ -128,52 +122,70 @@ func (m *CachedClient) Consume(queue string) (*Task, error) {
 		return nil, err
 	}
 
-	return m.taskFromCache(context.TODO(), task)
+	return m.store.Reload(context.TODO(), task)
 }
 
 func (m *CachedClient) QueueStats(queue string) (map[string][]string, error) {
 	return m.maestro.QueueStats(queue)
 }
 
-func (m *CachedClient) delete(ctx context.Context, queue, key string) error {
-	if _, exists := m.cachedQueues[queue]; !exists {
+type payloadStore struct {
+	cache        cache.Cache
+	cachedQueues map[string]struct{}
+}
+
+func (s *payloadStore) IsCached(queue string) bool {
+	_, exists := s.cachedQueues[queue]
+	return exists
+}
+
+func (s *payloadStore) Delete(ctx context.Context, task *Task) error {
+	if !s.IsCached(task.TaskQueue) {
 		return nil
 	}
 
-	return m.cache.Delete(ctx, key)
+	err := s.cache.Delete(ctx, task.Payload)
+	if err != nil {
+		return err
+	}
+
+	if task.Result != "" {
+		err = s.cache.Delete(ctx, task.Result)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
-func (m *CachedClient) setTTL(ctx context.Context, queue, key string, ttl time.Duration) error {
-	if _, exists := m.cachedQueues[queue]; !exists {
+func (s *payloadStore) SetTTL(ctx context.Context, queue, key string, ttl time.Duration) error {
+	if !s.IsCached(queue) {
 		return nil
 	}
 
-	return m.cache.SetTTL(ctx, key, ttl)
+	return s.cache.SetTTL(ctx, key, ttl)
 }
 
-func (m *CachedClient) cachePayload(ctx context.Context, queue string, payload string, timeout time.Duration) (string, error) {
-	if _, exists := m.cachedQueues[queue]; !exists {
+func (s *payloadStore) Persist(ctx context.Context, queue string, payload string, timeout time.Duration) (string, error) {
+	if !s.IsCached(queue) {
 		return payload, nil
 	}
 
-	cacheKey := m.uniqueKey(queue)
-	err := m.cache.Put(ctx, cacheKey, payload, timeout)
+	cacheKey := s.uniqueKey(queue)
+	err := s.cache.Put(ctx, cacheKey, payload, timeout)
 	if err != nil {
 		return "", err
 	}
 	return cacheKey, err
 }
 
-func (m *CachedClient) uniqueKey(queueName string) string {
-	return "maestro-cache-" + queueName + "-" + uuid.NewString()
-}
-
-func (m *CachedClient) taskFromCache(ctx context.Context, task *Task) (*Task, error) {
+func (s *payloadStore) Reload(ctx context.Context, task *Task) (*Task, error) {
 	if task == nil {
 		return nil, nil
 	}
 
-	payload, err := m.payloadFromCache(ctx, task.TaskQueue, task.Payload)
+	payload, err := s.payloadFromCache(ctx, task.TaskQueue, task.Payload)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +193,7 @@ func (m *CachedClient) taskFromCache(ctx context.Context, task *Task) (*Task, er
 	task.Payload = payload
 
 	if task.Result != "" {
-		result, err := m.payloadFromCache(ctx, task.TaskQueue, task.Result)
+		result, err := s.payloadFromCache(ctx, task.TaskQueue, task.Result)
 		if err != nil {
 			return nil, err
 		}
@@ -192,10 +204,14 @@ func (m *CachedClient) taskFromCache(ctx context.Context, task *Task) (*Task, er
 	return task, nil
 }
 
-func (m *CachedClient) payloadFromCache(ctx context.Context, queue, payload string) (string, error) {
-	if _, exists := m.cachedQueues[queue]; !exists {
+func (s *payloadStore) uniqueKey(queueName string) string {
+	return "maestro-cache-" + queueName + "-" + uuid.NewString()
+}
+
+func (s *payloadStore) payloadFromCache(ctx context.Context, queue, payload string) (string, error) {
+	if !s.IsCached(queue) {
 		return payload, nil
 	}
 
-	return m.cache.Get(ctx, payload)
+	return s.cache.Get(ctx, payload)
 }

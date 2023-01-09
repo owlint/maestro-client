@@ -13,29 +13,29 @@ import (
 
 func TestGet(t *testing.T) {
 	testutils.WithTestRedis(func(r *redis.Client) {
-		cache := cache.NewRedisCache(r)
+		c := cache.NewRedisCache(r)
 
 		key := testutils.RandomStr()
-		cache.Put(context.Background(), key, "value", time.Minute)
+		c.Put(context.Background(), key, "value", time.Minute)
 
 		t.Run("key exists", func(t *testing.T) {
-			v, err := cache.Get(context.Background(), key)
+			v, err := c.Get(context.Background(), key)
 
 			assert.NoError(t, err)
 			assert.Equal(t, "value", v)
 		})
 
 		t.Run("get twice", func(t *testing.T) {
-			v, err := cache.Get(context.Background(), key)
+			v, err := c.Get(context.Background(), key)
 
 			assert.NoError(t, err)
 			assert.Equal(t, "value", v)
 		})
 
 		t.Run("key doesn't exists", func(t *testing.T) {
-			v, err := cache.Get(context.Background(), "invalid")
+			v, err := c.Get(context.Background(), "invalid")
 
-			assert.Error(t, err)
+			assert.ErrorIs(t, err, cache.ErrKeyNotFound)
 			assert.Empty(t, v)
 		})
 	})
@@ -72,38 +72,50 @@ func TestPut(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	testutils.WithTestRedis(func(r *redis.Client) {
-		cache := cache.NewRedisCache(r)
+		c := cache.NewRedisCache(r)
 		key := testutils.RandomStr()
 
 		t.Run("delete existing", func(t *testing.T) {
-			err := cache.Put(context.Background(), key, "value", time.Minute)
+			err := c.Put(context.Background(), key, "value", time.Minute)
 			assert.NoError(t, err)
 
-			err = cache.Delete(context.Background(), key)
+			err = c.Delete(context.Background(), key)
 			assert.NoError(t, err)
 
-			_, err = cache.Get(context.Background(), key)
-			assert.Error(t, err)
+			_, err = c.Get(context.Background(), key)
+			assert.ErrorIs(t, err, cache.ErrKeyNotFound)
 		})
 
-		t.Run("delete not existing should be noop", func(t *testing.T) {
-			err := cache.Delete(context.Background(), "invalid")
+		t.Run("delete not existing should be no op", func(t *testing.T) {
+			err := c.Delete(context.Background(), "invalid")
 			assert.NoError(t, err)
 		})
 	})
 }
 
 func TestSetTTL(t *testing.T) {
-	testutils.WithTestRedis(func(r *redis.Client) {
-		cache := cache.NewRedisCache(r)
-		key := testutils.RandomStr()
+	t.Run("key exist", func(t *testing.T) {
+		testutils.WithTestRedis(func(r *redis.Client) {
+			cache := cache.NewRedisCache(r)
+			key := testutils.RandomStr()
 
-		err := cache.Put(context.Background(), key, "value", time.Minute)
-		assert.NoError(t, err)
+			err := cache.Put(context.Background(), key, "value", time.Minute)
+			assert.NoError(t, err)
 
-		err = cache.SetTTL(context.Background(), key, time.Hour)
-		assert.NoError(t, err)
+			err = cache.SetTTL(context.Background(), key, time.Hour)
+			assert.NoError(t, err)
 
-		assert.Equal(t, time.Hour, r.TTL(context.Background(), key).Val())
+			assert.Equal(t, time.Hour, r.TTL(context.Background(), key).Val())
+		})
+	})
+
+	t.Run("key doesn't exist should be no op", func(t *testing.T) {
+		testutils.WithTestRedis(func(r *redis.Client) {
+			cache := cache.NewRedisCache(r)
+			key := testutils.RandomStr()
+
+			err := cache.SetTTL(context.Background(), key, time.Hour)
+			assert.NoError(t, err)
+		})
 	})
 }

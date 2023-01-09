@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/go-redis/redis/v9"
@@ -19,6 +20,9 @@ func NewRedisCache(redis *redis.Client) *RedisCache {
 
 func (r *RedisCache) Get(ctx context.Context, key string) (string, error) {
 	cmd := r.redis.Get(ctx, key)
+	if errors.Is(cmd.Err(), redis.Nil) {
+		return "", ErrKeyNotFound
+	}
 	if cmd.Err() != nil {
 		return "", cmd.Err()
 	}

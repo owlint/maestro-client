@@ -1,3 +1,5 @@
+github.com/brianvoe/gofakeit/v6 v6.20.1 h1:8ihJ60OvPnPJ2W6wZR7M+TTeaZ9bml0z6oy4gvyJ/ek=
+github.com/brianvoe/gofakeit/v6 v6.20.1/go.mod h1:Ow6qC71xtwm79anlwKRlWZW6zVq9D2XHE4QSSMP/rU8=
 github.com/cespare/xxhash/v2 v2.1.2/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/cespare/xxhash/v2 v2.2.0 h1:DC2CZ1Ep5Y4k3ZQ899DldepgrayRUGE6BBZ/cd9Cj44=
 github.com/cespare/xxhash/v2 v2.2.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=

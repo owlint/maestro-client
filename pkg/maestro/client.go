@@ -32,7 +32,7 @@ func NewClient(endpoint string) *Client {
 }
 
 type Maestro interface {
-	CreateTask(owner, queue, payload string, options ...createTaskOptions) (string, error)
+	CreateTask(owner, queue, payload string, options ...CreateTaskOptions) (string, error)
 
 	TaskState(taskID string) (*Task, error)
 	DeleteTask(taskID string) error
@@ -48,7 +48,7 @@ type Client struct {
 	client   *http.Client
 }
 
-func (m Client) CreateTask(owner, queue, payload string, options ...createTaskOptions) (string, error) {
+func (m Client) CreateTask(owner, queue, payload string, options ...CreateTaskOptions) (string, error) {
 	opt := MergeCreateTaskOptions(options...)
 	httpPayload := struct {
 		Owner        string `json:"owner"`

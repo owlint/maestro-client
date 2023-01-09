@@ -63,7 +63,7 @@ func (mr *MockMaestroMockRecorder) Consume(arg0 interface{}) *gomock.Call {
 }
 
 // CreateTask mocks base method.
-func (m *MockMaestro) CreateTask(arg0, arg1, arg2 string, arg3 ...createTaskOptions) (string, error) {
+func (m *MockMaestro) CreateTask(arg0, arg1, arg2 string, arg3 ...CreateTaskOptions) (string, error) {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{arg0, arg1, arg2}
 	for _, a := range arg3 {
