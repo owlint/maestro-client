@@ -1,14 +1,13 @@
 package maestro
 
+//go:generate go run github.com/golang/mock/mockgen -destination=mock_client.go -package=maestro github.com/owlint/maestro-client/pkg/maestro Maestro
+
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"time"
-
-	"github.com/google/uuid"
 )
 
 type Task struct {
@@ -33,8 +32,7 @@ func NewClient(endpoint string) *Client {
 }
 
 type Maestro interface {
-	CreateTask(owner, queue, payload string) (string, error)
-	CreateScheduledTask(owner, queue, payload string, executesAfter time.Duration) (string, error)
+	CreateTask(owner, queue, payload string, options ...CreateTaskOptions) (string, error)
 
 	TaskState(taskID string) (*Task, error)
 	DeleteTask(taskID string) error
@@ -50,73 +48,32 @@ type Client struct {
 	client   *http.Client
 }
 
-func (m Client) CreateTask(owner, queue, payload string) (string, error) {
+func (m Client) CreateTask(owner, queue, payload string, options ...CreateTaskOptions) (string, error) {
+	opt := MergeCreateTaskOptions(options...)
 	httpPayload := struct {
-		Owner   string `json:"owner"`
-		Queue   string `json:"queue"`
-		Retries int    `json:"retries"`
-		Timeout int    `json:"timeout"`
-		Payload string `json:"payload"`
+		Owner        string `json:"owner"`
+		Queue        string `json:"queue"`
+		Retries      int    `json:"retries"`
+		Timeout      int    `json:"timeout"`
+		Payload      string `json:"payload"`
+		StartTimeout *int   `json:"startTimeout,omitempty"`
+		ExecutesIn   *int   `json:"not_before,omitempty"`
 	}{
-		owner,
-		queue,
-		0,
-		900,
-		payload,
+		Owner:   owner,
+		Queue:   queue,
+		Retries: opt.Retries(),
+		Timeout: int(opt.Timeout().Seconds()),
+		Payload: payload,
 	}
 
-	bytePayload, err := json.Marshal(&httpPayload)
-	if err != nil {
-		return "", err
+	if opt.ExecutesIn() != 0 {
+		executesIn := int(opt.ExecutesIn().Seconds())
+		httpPayload.ExecutesIn = &executesIn
 	}
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/task/create", m.endpoint), bytes.NewReader(bytePayload))
-	if err != nil {
-		return "", err
-	}
-
-	resp, err := m.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		msg, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("Maestro responded with invalid status code %d : %s", resp.StatusCode, string(msg))
-	}
-
-	respBody := struct {
-		Error  string `json:"error,omitempty"`
-		TaskID string `json:"task_id,omitempty"`
-	}{}
-	err = json.NewDecoder(resp.Body).Decode(&respBody)
-	if err != nil {
-		return "", err
-	}
-
-	if respBody.Error != "" {
-		return "", fmt.Errorf("Maestro error %s", respBody.Error)
-	}
-
-	return respBody.TaskID, nil
-}
-
-func (m Client) CreateScheduledTask(owner, queue, payload string, executesAfter time.Duration) (string, error) {
-	httpPayload := struct {
-		Owner     string `json:"owner"`
-		Queue     string `json:"queue"`
-		Retries   int    `json:"retries"`
-		Timeout   int    `json:"timeout"`
-		Payload   string `json:"payload"`
-		NotBefore int64  `json:"not_before"`
-	}{
-		owner,
-		queue,
-		0,
-		180,
-		payload,
-		time.Now().Add(executesAfter).Unix(),
+	if opt.StartTimeout() != 0 {
+		startTimeout := int(opt.StartTimeout().Seconds())
+		httpPayload.StartTimeout = &startTimeout
 	}
 
 	bytePayload, err := json.Marshal(&httpPayload)
@@ -403,38 +360,4 @@ func (m Client) QueueStats(queue string) (map[string][]string, error) {
 	}
 
 	return respBody, nil
-}
-
-type MaestroMock struct {
-	NbCreated int
-}
-
-func (m *MaestroMock) CreateTask(owner, queue, payload string) (string, error) {
-	m.NbCreated += 1
-	return uuid.NewString(), nil
-}
-func (m *MaestroMock) CreateScheduledTask(owner, queue, payload string, executesAfter time.Duration) (string, error) {
-	m.NbCreated += 1
-	return uuid.NewString(), nil
-}
-func (m *MaestroMock) TaskState(taskID string) (*Task, error) {
-	return nil, nil
-}
-func (m *MaestroMock) DeleteTask(taskID string) error {
-	return nil
-}
-func (m *MaestroMock) FailTask(taskID string) error {
-	return nil
-}
-func (m *MaestroMock) NextInQueue(queueName string) (*Task, error) {
-	return nil, nil
-}
-func (m *MaestroMock) CompleteTask(taskID string, result string) error {
-	return nil
-}
-func (m *MaestroMock) Consume(queueName string) (*Task, error) {
-	return nil, nil
-}
-func (m *MaestroMock) QueueStats(queue string) (map[string][]string, error) {
-	return nil, nil
 }
